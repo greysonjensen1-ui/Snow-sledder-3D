@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Snow Sledder 3D</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#b9e4ff;font-family:system-ui,Arial}
+canvas{display:block}
+#hud{position:fixed;top:12px;left:12px;z-index:2;display:none;background:#fffffff0;color:#18364d;padding:10px 14px;border-radius:14px;font-weight:800;box-shadow:0 4px 18px #1232;line-height:1.55}
+#help{position:fixed;bottom:12px;left:50%;transform:translateX(-50%);z-index:2;background:#fffffff0;color:#18364d;padding:9px 13px;border-radius:12px;font-size:13px;text-align:center;white-space:nowrap;display:none}
+#jump{position:fixed;right:18px;bottom:22px;z-index:3;width:88px;height:88px;border-radius:50%;border:4px solid #fff;background:#1686d9;color:#fff;font-weight:900;font-size:17px;box-shadow:0 5px 18px #1235;display:none;touch-action:none}
+#overlay{position:fixed;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;background:linear-gradient(#163b5877,#0b294b99);padding:14px;overflow:auto}
+#panel{width:min(560px,96vw);max-height:94vh;overflow:auto;background:#fff;border-radius:22px;padding:22px;text-align:center;box-shadow:0 15px 50px #082b4c66}
+h1{margin:0;color:#123650;font-size:clamp(25px,5vw,38px)}p{color:#476579;margin:8px 0 16px}
+#sleds{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:14px 0}
+.sledChoice{border:2px solid #d9e7ef;background:#f6fbff;border-radius:14px;padding:10px;cursor:pointer;text-align:left;color:#18364d}
+.sledChoice.selected{border-color:#1686d9;background:#e9f6ff;box-shadow:0 0 0 2px #1686d922}
+.sledName{font-weight:850}.stats{font-size:12px;color:#537187;margin-top:4px}
+.swatch{display:inline-block;width:13px;height:13px;border-radius:50%;margin-right:5px;vertical-align:-1px}
+button.main{border:0;border-radius:13px;padding:13px 25px;background:#147ec4;color:#fff;font-size:18px;font-weight:850;cursor:pointer}
+#menuNote{font-size:12px;color:#6b8394}
+#wallet{font-weight:900;color:#9a6a00;background:#fff5d6;border-radius:12px;padding:8px;margin:8px auto;max-width:240px}
+.sledChoice:disabled{opacity:.82;cursor:default}.sledChoice .buy{display:inline-block;margin-top:6px;background:#167e47;color:white;padding:4px 8px;border-radius:8px;font-weight:800}
+@media(max-width:480px){#sleds{grid-template-columns:1fr 1fr}#panel{padding:17px}#help{white-space:normal;width:65%;left:12px;transform:none;text-align:left}}
+</style>
+</head>
+<body>
+<div id="hud">DISTANCE: <span id="distance">0</span> m<br>SPEED: <span id="speed">0</span> km/h<br>🎁 GIFTS: <span id="gifts">0</span><br><span id="airStatus"></span></div>
+<div id="help">Steer: ← → / A D · Jump: W / ↑ / SPACE or button · Phone: drag to steer</div>
+<button id="jump">JUMP<br>⬆</button>
+<div id="overlay"><div id="panel">
+<h1>❄️ SNOW SLEDDER 3D</h1>
+<p>Choose your sled, race down the mountain, hit ramps and collect gifts!</p>
+<h3 style="color:#23465d;margin:8px 0">SLED GARAGE</h3>
+<div id="wallet">🎁 Presents: <span id="walletCount">0</span></div>
+<div id="sleds"></div>
+<div id="menuNote">Better sleds give you different speed, handling and jump boosts.</div>
+<p id="selectedInfo"></p>
+<button class="main" id="start">START SLEDDING</button>
+</div></div>
+<script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+<script>
+(()=>{
+const $=id=>document.getElementById(id);
+const sledTypes=[
+ {name:"Classic Runner",color:0xe33c45,speed:1,handling:1,jump:1,price:0,desc:"Balanced starter sled"},
+ {name:"Blue Blizzard",color:0x168bd0,speed:1.04,handling:1.05,jump:1.05,price:20,desc:"A little faster"},
+ {name:"Mountain Rocket",color:0xf0a51b,speed:1.09,handling:.92,jump:1.12,price:45,desc:"Top speed specialist"},
+ {name:"Ice Surfer",color:0x29b9ad,speed:1.02,handling:1.3,jump:1.1,price:60,desc:"Super responsive steering"},
+ {name:"Powder Pro",color:0x8a55c7,speed:1.05,handling:1.12,jump:1.28,price:85,desc:"Big jump boost"},
+ {name:"Arctic Legend",color:0x252f42,speed:1.10,handling:1.18,jump:1.35,price:120,desc:"Elite all-round sled"}
+];
+let chosen=0;
+let presents=Number(localStorage.getItem('snowSledderPresents')||0);
+let unlocked=JSON.parse(localStorage.getItem('snowSledderUnlocked')||'[0]');
+function saveGarage(){localStorage.setItem('snowSledderPresents',String(presents));localStorage.setItem('snowSledderUnlocked',JSON.stringify(unlocked));}
+function drawMenu(){
+ $('sleds').innerHTML='';$('walletCount').textContent=presents;
+ sledTypes.forEach((s,i)=>{
+  const owned=unlocked.includes(i),b=document.createElement('button');
+  b.className='sledChoice'+(i===chosen?' selected':'');
+  b.innerHTML=`<div class="sledName"><span class="swatch" style="background:#${s.color.toString(16).padStart(6,'0')}"></span>${s.name}</div><div class="stats">${s.desc}<br>Speed ${Math.round(s.speed*100)} · Turn ${Math.round(s.handling*100)} · Jump ${Math.round(s.jump*100)}</div>${owned?'':`<span class="buy">🎁 BUY · ${s.price}</span>`}`;
+  b.onclick=()=>{if(owned){chosen=i;drawMenu()}else if(presents>=s.price){presents-=s.price;unlocked.push(i);chosen=i;saveGarage();drawMenu()}else{$('selectedInfo').textContent=`You need ${s.price-presents} more presents to unlock ${s.name}.`}};
+  $('sleds').appendChild(b);
+ });
+ const s=sledTypes[chosen];$('selectedInfo').textContent=`Selected: ${s.name} · Presents are saved between rides.`;
+}
+drawMenu();
+const scene=new THREE.Scene();scene.background=new THREE.Color(0xb9e4ff);scene.fog=new THREE.Fog(0xb9e4ff,45,155);
+const camera=new THREE.PerspectiveCamera(68,innerWidth/innerHeight,.1,250);
+const renderer=new THREE.WebGLRenderer({antialias:true});renderer.setSize(innerWidth,innerHeight);renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.outputColorSpace=THREE.SRGBColorSpace;document.body.appendChild(renderer.domElement);
+scene.add(new THREE.HemisphereLight(0xeaf7ff,0x8299ad,1.8));
+const sun=new THREE.DirectionalLight(0xffffff,2.3);sun.position.set(-20,35,12);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);sun.shadow.camera.left=-35;sun.shadow.camera.right=35;sun.shadow.camera.top=40;sun.shadow.camera.bottom=-40;scene.add(sun);
+const mat=(c,r=.9)=>new THREE.MeshStandardMaterial({color:c,roughness:r});
+const snow=mat(0xf4fbff), packed=mat(0xe4f2fa), pine=mat(0x155d45), pine2=mat(0x23775a), bark=mat(0x755036), rockmat=mat(0x8798a7), rampmat=mat(0x9ed8f3), gold=mat(0xffc629,.45), dark=mat(0x283b4b);
+// Recycled snow-floor and boundary segments keep the mountain endless.
+const groundSegments=[];
+for(const z of [-150,-50,50]){const g=new THREE.Mesh(new THREE.PlaneGeometry(24,100),snow);g.rotation.x=-Math.PI/2;g.position.set(0,-.48,z);g.receiveShadow=true;scene.add(g);groundSegments.push(g)}
+const edgeSegments=[];
+for(const z of [-150,-50,50]){const pair=[];for(const x of [-12,12]){const wall=new THREE.Mesh(new THREE.BoxGeometry(.4,.6,100),packed);wall.position.set(x,-.3,z);scene.add(wall);pair.push(wall)}edgeSegments.push(pair)}
+// Distant snow mountains
+for(let i=0;i<15;i++){let m=new THREE.Mesh(new THREE.ConeGeometry(12+Math.random()*8,20+Math.random()*18,5),snow);m.position.set((Math.random()-.5)*115,4,-55-Math.random()*115);m.rotation.y=Math.random()*2;scene.add(m)}
+const sled=new THREE.Group();scene.add(sled);
+let sledMaterial;
+function buildSled(type){
+ while(sled.children.length)sled.remove(sled.children[0]);
+ const bodymat=mat(type.color,.38), accent=mat(0xe8f7ff,.35);
+ const body=new THREE.Mesh(new THREE.BoxGeometry(1.05,.22,1.8),bodymat);body.position.y=.32;body.castShadow=true;sled.add(body);
+ const nose=new THREE.Mesh(new THREE.ConeGeometry(.55,.55,4),bodymat);nose.rotation.x=-Math.PI/2;nose.position.set(0,.33,-1.05);nose.scale.z=.7;sled.add(nose);
+ const seat=new THREE.Mesh(new THREE.BoxGeometry(.72,.42,.72),dark);seat.position.set(0,.62,.15);seat.castShadow=true;sled.add(seat);
+ const back=new THREE.Mesh(new THREE.BoxGeometry(.76,.65,.12),bodymat);back.position.set(0,.83,.55);sled.add(back);
+ for(const x of [-.48,.48]){const runner=new THREE.Mesh(new THREE.BoxGeometry(.1,.12,2.15),accent);runner.position.set(x,.12,0);sled.add(runner)}
+ // simple rider helmet and jacket for a more lived-in third-person view
+ const jacket=new THREE.Mesh(new THREE.SphereGeometry(.31,12,10),mat(0x245d9b));jacket.position.set(0,.92,.02);jacket.scale.set(.9,1.25,.8);jacket.castShadow=true;sled.add(jacket);
+ const helmet=new THREE.Mesh(new THREE.SphereGeometry(.24,14,12),mat(0xff7438,.4));helmet.position.set(0,1.32,-.16);helmet.castShadow=true;sled.add(helmet);
+}
+buildSled(sledTypes[chosen]);sled.position.set(0,0,5);
+// Snow surface markings
+const laneMarks=[];for(let i=0;i<14;i++){let g=new THREE.Group();for(let x of [-.13,.13]){let m=new THREE.Mesh(new THREE.BoxGeometry(.045,.015,4),packed);m.position.x=x;g.add(m)}g.position.set(0,-.465,-i*18);scene.add(g);laneMarks.push(g)}
+const objects=[];let running=false,last=0,elapsed=0,distance=0,gifts=0,spawnClock=0,spawnCount=0,steer=0,air=0,airVelocity=0,airTime=0,groundY=0;
+let currentSpeed=18,selected;
+function makeTree(x,z){const g=new THREE.Group();let tr=new THREE.Mesh(new THREE.CylinderGeometry(.16,.24,1.3,8),bark);tr.position.y=.2;g.add(tr);for(let j=0;j<3;j++){let c=new THREE.Mesh(new THREE.ConeGeometry(1.15-j*.19,1.7,8),j===2?pine2:pine);c.position.y=1+j*.72;c.castShadow=true;g.add(c)}g.position.set(x,0,z);scene.add(g);objects.push({mesh:g,type:'obstacle',r:.85})}
+function makeRock(x,z){let m=new THREE.Mesh(new THREE.DodecahedronGeometry(.72,1),rockmat);m.position.set(x,.1,z);m.scale.set(1,.65,1.25);m.castShadow=true;scene.add(m);objects.push({mesh:m,type:'obstacle',r:.8})}
+function makeGift(x,z){let g=new THREE.Group(),cube=new THREE.Mesh(new THREE.BoxGeometry(.55,.55,.55),gold),ribbon=new THREE.Mesh(new THREE.BoxGeometry(.13,.58,.58),mat(0xe74d4d));g.add(cube,ribbon);g.position.set(x,.7,z);scene.add(g);objects.push({mesh:g,type:'gift',r:.7})}
+function makeRamp(x,z){
+ // A wide, bright, visibly sloped jump ramp. Its high end faces the oncoming sled.
+ const g=new THREE.Group();
+ const deck=new THREE.Mesh(new THREE.BoxGeometry(4.2,.42,6.8),rampmat);deck.position.y=.9;deck.rotation.x=-.24;deck.castShadow=true;deck.receiveShadow=true;g.add(deck);
+ const stripeMat=mat(0xffffff,.5);for(const sx of [-1.15,0,1.15]){const stripe=new THREE.Mesh(new THREE.BoxGeometry(.12,.035,4.6),stripeMat);stripe.position.set(sx,1.12,0);stripe.rotation.x=-.24;g.add(stripe)}
+ g.position.set(x,0,z);scene.add(g);objects.push({mesh:g,type:'ramp',r:2.3})
+}
+function spawn(){
+ const lanes=[-4.7,-2.4,0,2.4,4.7],x=lanes[Math.floor(Math.random()*lanes.length)],z=-112;spawnCount++;
+ // A ramp is guaranteed every sixth spawn, rather than relying on random chance.
+ if(spawnCount%4===0){makeRamp(x,z);if(Math.random()<.55)makeGift(lanes[Math.floor(Math.random()*lanes.length)],z-13);return}
+ const r=Math.random();if(r<.48)makeTree(x,z);else if(r<.78)makeRock(x,z);else makeGift(x,z);
+ if(Math.random()<.3)makeGift(lanes[Math.floor(Math.random()*lanes.length)],z-12)
+}
+function setHud(){ $('distance').textContent=Math.floor(distance);$('speed').textContent=Math.round(currentSpeed*3.6);$('gifts').textContent=gifts;$('airStatus').textContent=air>.3?'🚀 AIRBORNE!':''}
+function showMenu(gameOver=false){running=false;$('overlay').style.display='flex';$('hud').style.display='none';$('help').style.display='none';$('jump').style.display='none';$('panel').querySelector('h1').textContent=gameOver?'WIPEOUT!':'❄️ SNOW SLEDDER 3D';$('panel').querySelector('p').textContent=gameOver?`You rode ${Math.floor(distance)} m and collected ${gifts} gifts. Choose a sled and try again!`:'Choose your sled, race down the mountain, hit ramps and collect gifts!';$('start').textContent=gameOver?'RIDE AGAIN':'START SLEDDING';$('sleds').style.display='grid';$('menuNote').style.display='block';$('selectedInfo').style.display='block'}
+function startGame(){selected=sledTypes[chosen];buildSled(selected);objects.forEach(o=>scene.remove(o.mesh));objects.length=0;distance=0;gifts=0;elapsed=0;spawnClock=0;spawnCount=0;air=0;airVelocity=0;airTime=0;steer=0;currentSpeed=18*selected.speed;sled.position.set(0,0,5);sled.rotation.set(0,0,0);setHud();$('overlay').style.display='none';$('hud').style.display='block';$('help').style.display='block';$('jump').style.display='block';running=true;last=performance.now();requestAnimationFrame(loop)}
+function jump(){if(running&&air<=0.08){airVelocity=11.5*selected.jump;air=0.12;airTime=0;}}
+function launchFromRamp(){if(running&&air<=0.25){air=0.18;airVelocity=15.5*selected.jump;airTime=0;}}
+$('jump').addEventListener('pointerdown',e=>{e.preventDefault();jump()});addEventListener('keydown',e=>{const k=e.key.toLowerCase();keys[k]=true;if(k===' '||k==='arrowup'||k==='w'){e.preventDefault();jump()}});addEventListener('keyup',e=>keys[e.key.toLowerCase()]=false);
+const keys={};let pointerX=null;
+renderer.domElement.addEventListener('pointerdown',e=>{pointerX=e.clientX});renderer.domElement.addEventListener('pointermove',e=>{if(pointerX!==null){steer=THREE.MathUtils.clamp((e.clientX-pointerX)/110,-1,1);pointerX=e.clientX}});renderer.domElement.addEventListener('pointerup',()=>pointerX=null);renderer.domElement.addEventListener('pointercancel',()=>pointerX=null);
+function loop(now){if(!running)return;const dt=Math.min((now-last)/1000,.035);last=now;elapsed+=dt;
+ const keyInput=(keys.arrowleft||keys.a?-1:0)+(keys.arrowright||keys.d?1:0);const input=keyInput||steer;
+ // Speed rises gradually, then stays below a safe cap so physics remain stable.
+ currentSpeed=Math.min(24,14+distance*.0035*selected.speed);
+ distance+=currentSpeed*dt*.8;
+ sled.position.x=THREE.MathUtils.clamp(sled.position.x+input*dt*(5.5*selected.handling+currentSpeed*.025),-9.8,9.8);
+ sled.rotation.z=THREE.MathUtils.lerp(sled.rotation.z,-input*.19,.12);
+ // Ramp collisions launch the sled; gravity brings it back down
+ if(air>0){airVelocity-=19*dt;air=Math.max(0,air+airVelocity*dt);if(air===0){airVelocity=0;airTime=0}else{airTime+=dt}}
+ sled.position.y=air;
+ spawnClock+=dt;if(spawnClock>.82){spawn();spawnClock=0}
+ // Move the snow and side walls beneath the sled, recycling each segment forever.
+ groundSegments.forEach(g=>{g.position.z+=currentSpeed*dt;if(g.position.z>150)g.position.z-=300});
+ edgeSegments.forEach(pair=>pair.forEach(w=>{w.position.z+=currentSpeed*dt;if(w.position.z>150)w.position.z-=300}));
+ for(let i=objects.length-1;i>=0;i--){const o=objects[i];o.mesh.position.z+=currentSpeed*dt; if(o.type==='gift')o.mesh.rotation.y+=dt*1.8;
+  const dx=o.mesh.position.x-sled.position.x,dz=o.mesh.position.z-sled.position.z;
+  const hitDepth=o.type==='ramp'?4.2:1.25;
+  const hitWidth=o.type==='ramp'?2.7:o.r+.45;
+  if(Math.abs(dz)<hitDepth&&Math.abs(dx)<hitWidth){
+   if(o.type==='gift'){gifts++;presents++;saveGarage();distance+=12;drawMenu();scene.remove(o.mesh);objects.splice(i,1);continue}
+   if(o.type==='ramp'){if(air<.35)launchFromRamp();scene.remove(o.mesh);objects.splice(i,1);continue}
+   if(air<.65){showMenu(true);return}
+  }
+  if(o.mesh.position.z>14){scene.remove(o.mesh);objects.splice(i,1)}
+ }
+ laneMarks.forEach(m=>{m.position.z+=currentSpeed*dt;if(m.position.z>15)m.position.z-=252});
+ // Follow camera stays behind and above the rider, with gentle movement
+ const targetCam=new THREE.Vector3(sled.position.x*.42,5.4+air*.25,12.8);
+ camera.position.lerp(targetCam,.075);camera.lookAt(sled.position.x*.25,1.05+air*.25,-8);
+ setHud();renderer.render(scene,camera);requestAnimationFrame(loop)
+}
+$('start').onclick=startGame;
+addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
+camera.position.set(0,5.4,12.8);camera.lookAt(0,1,-8);renderer.render(scene,camera);
+})();
+</script>
+</body></html>
